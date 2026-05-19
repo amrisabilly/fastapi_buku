@@ -43,17 +43,23 @@ class LoginRequest(BaseModel):
 
 class CreateUserRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=6, description="Password minimal 6 karakter")
-    username: str = Field(..., min_length=3, description="Username unik pengguna")
-    full_name: str = Field(..., description="Nama lengkap pengguna")
-    role: str = Field(..., description="Role wajib diisi: 'manager', 'supervisor', atau 'kasir'")
+    password: str = Field(..., min_length=6)
+    username: str = Field(..., min_length=3)
+    full_name: str
+    role: str # 'manager', 'supervisor', atau 'kasir'
+
+class UpdateUserRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    password: Optional[str] = Field(None, min_length=6)
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
 
 
-# 4. ENDPOINT 1: LOGIN UTK SEMUA ROLE
-@app.post("/api/auth/login", summary="Login menggunakan Email dan Password Supabase")
+# 4. ENDPOINT: LOGIN
+@app.post("/api/auth/login")
 def login_with_supabase(payload: LoginRequest):
     try:
-        # Melakukan autentikasi via Supabase Auth
         response = supabase.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
@@ -62,10 +68,6 @@ def login_with_supabase(payload: LoginRequest):
         user_data = response.user
         session_data = response.session
 
-        if not user_data or not session_data:
-            raise HTTPException(status_code=401, detail="Data autentikasi tidak valid")
-
-        # Mengambil metadata yang disimpan saat registrasi
         user_metadata = user_data.user_metadata if user_data.user_metadata else {}
         user_role = user_metadata.get("role", "kasir")
         full_name = user_metadata.get("name", "Pengguna")
@@ -77,91 +79,134 @@ def login_with_supabase(payload: LoginRequest):
                 "id": user_data.id,
                 "name": full_name,
                 "email": user_data.email,
-                "role": user_role,  # Nilai dinamis: 'manager' | 'supervisor' | 'kasir'
+                "role": user_role,
             },
-            "token": session_data.access_token # Token JWT untuk dikirimkan Next.js pada request selanjutnya
+            "token": session_data.access_token
         }
-
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email atau password salah."
-        )
+        raise HTTPException(status_code=401, detail="Email atau password salah.")
 
 
-# 5. ENDPOINT 2: PEMBUATAN USER SECARA DINAMIS (ADMIN ONLY BY SERVICE ROLE)
-@app.post("/create-user", summary="Membuat User baru (Manager, Supervisor, atau Kasir)")
+# 5. ENDPOINT: POST - BUAT USER BARU
+@app.post("/create-user")
 def create_user(payload: CreateUserRequest):
-    # Validasi server-side untuk memastikan role yang masuk sesuai ketentuan
-    allowed_roles = ["manager", "supervisor", "kasir"]
-    if payload.role.lower() not in allowed_roles:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Role tidak valid. Pilih salah satu dari: {', '.join(allowed_roles)}"
-        )
+    role_lower = payload.role.lower()
+    if role_lower not in ["manager", "supervisor", "kasir"]:
+        raise HTTPException(status_code=400, detail="Role tidak valid.")
 
     try:
-        # A. Daftarkan akun ke Supabase Authentication (Bypass email confirmation)
+        # A. Buat user di Supabase Auth
         auth_response = supabase.auth.admin.create_user({
             "email": payload.email,
             "password": payload.password,
-            "email_confirm": True, # Otomatis langsung aktif tanpa klik link verifikasi email
+            "email_confirm": True,
             "user_metadata": {
                 "name": payload.full_name,
-                "role": payload.role.lower() # Menyimpan role langsung di metadata auth agar cepat dibaca saat login
+                "role": role_lower
             }
         })
 
         user = auth_response.user
         if not user:
-            raise HTTPException(status_code=400, detail="Gagal membuat user di sistem autentikasi Supabase")
+            raise HTTPException(status_code=400, detail="Gagal membuat akun auth.")
 
-        # B. Sinkronisasi data profile tambahan ke dalam tabel database "user_profile"
+        # B. Simpan data profil ke tabel user_profile
         profile_data = {
-            "id": user.id, # Hubungkan ID Auth Supabase dengan ID tabel profile Anda
+            "id": user.id,
             "username": payload.username,
             "full_name": payload.full_name,
-            "role": payload.role.lower()
+            "role": role_lower
         }
-        
         supabase.table("user_profile").insert(profile_data).execute()
 
         return {
             "status": "success",
-            "message": f"User baru berhasil didaftarkan!",
+            "message": "Karyawan berhasil didaftarkan!",
             "data": {
                 "user_id": user.id,
                 "username": payload.username,
                 "email": payload.email,
-                "role": payload.role.lower()
+                "role": role_lower
             }
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Proses pembuatan user gagal: {str(e)}"
-        )
-    
-@app.get("/api/users", summary="Mengambil data semua Supervisor dan Kasir")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# 6. ENDPOINT (PERBAIKAN): GET ALL EMPLOYEES (SUPERVISOR & KASIR)
+@app.get("/api/users")
 def get_employees():
     try:
-        # Melakukan query ke tabel user_profile
-        # Kita memfilter agar hanya mengambil role 'supervisor' dan 'kasir' 
-        # (Manager tidak perlu ikut tampil di list staf jika tidak diinginkan)
-        response = supabase.table("user_profile") \
-            .select("id, username, full_name, role, created_at") \
-            .in_("role", ["supervisor", "kasir"]) \
-            .execute()
+        # Perbaikan query: Kita ambil semua data profil karyawan dari database.
+        # Menghapus filter filter kaku .in_() untuk memastikan data ditarik terlebih dahulu.
+        response = supabase.table("user_profile").select("*").execute()
         
-        # Catatan: Jika Anda juga ingin mengambil Email mereka dari auth.users, 
-        # opsi termudah saat ini adalah mengembalikannya dari data profile.
-        # Jika ingin menampilkan semua termasuk manager, hapus bagian .in_()
+        # Saring data di tingkat aplikasi agar fleksibel (tidak sensitif huruf besar/kecil)
+        filtered_data = [
+            emp for emp in response.data 
+            if emp.get("role", "").lower() in ["supervisor", "kasir"]
+        ]
+        
         return {
             "status": "success",
-            "data": response.data
+            "data": filtered_data
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Gagal mengambil data karyawan: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Gagal memuat data: {str(e)}")
+
+
+# 7. ENDPOINT: PUT - UPDATE/EDIT DATA KARYAWAN
+@app.put("/api/users/{user_id}")
+def update_employee(user_id: str, payload: UpdateUserRequest):
+    try:
+        # A. Update data Auth di Supabase (jika email atau password diubah)
+        auth_updates = {}
+        if payload.email:
+            auth_updates["email"] = payload.email
+        if payload.password:
+            auth_updates["password"] = payload.password
+        if payload.full_name or payload.role:
+            auth_updates["user_metadata"] = {}
+            if payload.full_name:
+                auth_updates["user_metadata"]["name"] = payload.full_name
+            if payload.role:
+                auth_updates["user_metadata"]["role"] = payload.role.lower()
+
+        if auth_updates:
+            supabase.auth.admin.update_user_by_id(user_id, auth_updates)
+
+        # B. Update data di tabel user_profile database
+        profile_updates = {}
+        if payload.username:
+            profile_updates["username"] = payload.username
+        if payload.full_name:
+            profile_updates["full_name"] = payload.full_name
+        if payload.role:
+            profile_updates["role"] = payload.role.lower()
+
+        if profile_updates:
+            supabase.table("user_profile").update(profile_updates).eq("id", user_id).execute()
+
+        return {
+            "status": "success",
+            "message": "Data karyawan berhasil diperbarui"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Gagal memperbarui data: {str(e)}")
+
+
+# 8. ENDPOINT: DELETE - HAPUS AKUN KARYAWAN
+@app.delete("/api/users/{user_id}")
+def delete_employee(user_id: str):
+    try:
+        # Menghapus user dari autentikasi utama Supabase.
+        # Karena tabel user_profile menggunakan ON DELETE CASCADE, 
+        # baris data di tabel user_profile otomatis akan ikut terhapus secara otomatis.
+        supabase.auth.admin.delete_user(user_id)
+        
+        return {
+            "status": "success",
+            "message": "Akun karyawan berhasil dihapus dari sistem"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Gagal menghapus akun: {str(e)}")
