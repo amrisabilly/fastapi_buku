@@ -10,7 +10,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://management-kasir-zixa.vercel.app",  # URL Produksi Vercel
+        "https://management-kasir.vercel.app",  # URL Produksi Vercel
         "http://localhost:3000"                      # URL Lokal untuk development
     ],  
     allow_credentials=True,
