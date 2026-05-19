@@ -143,22 +143,17 @@ def create_user(payload: CreateUserRequest):
         )
 
 
-# 6. ENDPOINT 3: MENGAMBIL DATA KARYAWAN (SUPERVISOR & KASIR)
 @app.get("/api/users", summary="Mengambil data semua Supervisor dan Kasir")
 def get_employees():
     try:
-        # Perbaikan query: Kita ambil semua kolom data profil dari database public.user_profile
-        response = supabase.table("user_profile").select("*").execute()
-        
-        # Lakukan pemfilteran aman di tingkat aplikasi untuk menghindari error peka huruf besar-kecil (case-insensitive)
-        filtered_data = [
-            emp for emp in response.data 
-            if emp.get("role", "").lower() in ["supervisor", "kasir"]
-        ]
+        response = supabase.table("user_profile") \
+            .select("id, username, full_name, role, created_at") \
+            .in_("role", ["supervisor", "kasir"]) \
+            .execute()
     
         return {
             "status": "success",
-            "data": filtered_data
+            "data": response.data
         }
     except Exception as e:
         raise HTTPException(
