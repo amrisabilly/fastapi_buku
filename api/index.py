@@ -19,9 +19,13 @@ app.add_middleware(
 )
 
 # Inisialisasi Supabase Client
-# PENTING: Pastikan SUPABASE_KEY menggunakan Anon Key (string panjang diawali 'eyJ...') jika key di bawah gagal
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ghowabpmxojzlbbskbzn.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_sxchFXHtEoZhWfbcrMHbIg_00Kk7UIg")
+# PENTING: Pastikan SUPABASE_KEY menggunakan Anon Key (string panjang diawali 'eyJ...')
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("SUPABASE_URL dan SUPABASE_KEY harus diatur dalam environment variables")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 class LoginRequest(BaseModel):
