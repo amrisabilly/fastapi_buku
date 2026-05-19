@@ -85,7 +85,7 @@ def login_with_supabase(payload: LoginRequest):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email atau password salah atau kredensial tidak ditemukan."
+            detail="Email atau password salah."
         )
 
 
@@ -140,4 +140,28 @@ def create_user(payload: CreateUserRequest):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Proses pembuatan user gagal: {str(e)}"
+        )
+    
+@app.get("/api/users", summary="Mengambil data semua Supervisor dan Kasir")
+def get_employees():
+    try:
+        # Melakukan query ke tabel user_profile
+        # Kita memfilter agar hanya mengambil role 'supervisor' dan 'kasir' 
+        # (Manager tidak perlu ikut tampil di list staf jika tidak diinginkan)
+        response = supabase.table("user_profile") \
+            .select("id, username, full_name, role, created_at") \
+            .in_("role", ["supervisor", "kasir"]) \
+            .execute()
+        
+        # Catatan: Jika Anda juga ingin mengambil Email mereka dari auth.users, 
+        # opsi termudah saat ini adalah mengembalikannya dari data profile.
+        # Jika ingin menampilkan semua termasuk manager, hapus bagian .in_()
+        return {
+            "status": "success",
+            "data": response.data
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengambil data karyawan: {str(e)}"
         )
