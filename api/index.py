@@ -28,7 +28,12 @@ app.add_middleware(
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+# DEBUG: Tampilkan konfigurasi Supabase
+print("DEBUG: SUPABASE_URL =", SUPABASE_URL[:30] if SUPABASE_URL else "NOT SET")
+print("DEBUG: SUPABASE_KEY =", SUPABASE_KEY[:20] if SUPABASE_KEY else "NOT SET")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+print("DEBUG: Supabase client berhasil diinisialisasi")
 
 
 # 3. VALIDASI SKEMA DATA (PYDANTIC MODELS)
@@ -55,12 +60,14 @@ class UpdateUserRequest(BaseModel):
 # 4. ENDPOINT 1: LOGIN UTK SEMUA ROLE
 @app.post("/api/auth/login", summary="Login menggunakan Email dan Password Supabase")
 def login_with_supabase(payload: LoginRequest):
+    print(f"DEBUG: Login attempt - Email: {payload.email}")
     try:
         response = supabase.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
         })
         
+        print(f"DEBUG: Login berhasil untuk {payload.email}")
         user_data = response.user
         session_data = response.session
 
@@ -93,6 +100,7 @@ def login_with_supabase(payload: LoginRequest):
 # 5. ENDPOINT 2: PEMBUATAN USER SECARA DINAMIS
 @app.post("/create-user", summary="Membuat User baru (Manager, Supervisor, atau Kasir)")
 def create_user(payload: CreateUserRequest):
+    print(f"DEBUG: Create user attempt - Email: {payload.email}, Role: {payload.role}")
     allowed_roles = ["manager", "supervisor", "kasir"]
     if payload.role.lower() not in allowed_roles:
         raise HTTPException(
@@ -113,6 +121,7 @@ def create_user(payload: CreateUserRequest):
         })
 
         user = auth_response.user
+        print(f"DEBUG: User {payload.email} berhasil dibuat di Auth dengan ID: {user.id if user else 'UNKNOWN'}")
         if not user:
             raise HTTPException(status_code=400, detail="Gagal membuat user di sistem autentikasi Supabase")
 
@@ -145,12 +154,14 @@ def create_user(payload: CreateUserRequest):
 
 @app.get("/api/users", summary="Mengambil data semua Supervisor dan Kasir")
 def get_employees():
+    print("DEBUG: Fetching all employees (supervisor dan kasir)")
     try:
         response = supabase.table("user_profile") \
             .select("id, username, full_name, role, created_at") \
             .in_("role", ["supervisor", "kasir"]) \
             .execute()
     
+        print(f"DEBUG: Berhasil mengambil {len(response.data)} karyawan dari database")
         return {
             "status": "success",
             "data": response.data
@@ -165,6 +176,7 @@ def get_employees():
 # 7. ENDPOINT 4: PUT - EDIT DATA KARYAWAN
 @app.put("/api/users/{user_id}", summary="Memperbarui data akun karyawan")
 def update_employee(user_id: str, payload: UpdateUserRequest):
+    print(f"DEBUG: Update employee - User ID: {user_id}, Payload: {payload.dict()}")
     try:
         # A. Update data Auth di Supabase (jika data opsional diisi)
         auth_updates = {}
@@ -181,6 +193,7 @@ def update_employee(user_id: str, payload: UpdateUserRequest):
 
         if auth_updates:
             supabase.auth.admin.update_user_by_id(user_id, auth_updates)
+            print(f"DEBUG: Auth data updated untuk user {user_id}")
 
         # B. Update data di tabel database user_profile
         profile_updates = {}
@@ -208,11 +221,13 @@ def update_employee(user_id: str, payload: UpdateUserRequest):
 # 8. ENDPOINT 5: DELETE - HAPUS AKUN KARYAWAN
 @app.delete("/api/users/{user_id}", summary="Menghapus akun karyawan dari sistem")
 def delete_employee(user_id: str):
+    print(f"DEBUG: Delete employee - User ID: {user_id}")
     try:
         # Menghapus user secara permanen dari Supabase Auth Admin.
         # Karena relasi foreign key pada tabel user_profile sudah diatur "ON DELETE CASCADE",
         # data profil baris ini akan otomatis ikut terhapus dari tabel database public Anda.
         supabase.auth.admin.delete_user(user_id)
+        print(f"DEBUG: User {user_id} berhasil dihapus")
         
         return {
             "status": "success",
