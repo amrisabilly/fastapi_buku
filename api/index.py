@@ -128,9 +128,26 @@ def login_with_username(payload: LoginWithUsernameRequest):
         
         # 2. Dapatkan email dari Supabase Auth menggunakan user_id
         print(f"DEBUG: Getting email from Supabase Auth for user_id: {user_id}")
-        auth_user = get_supabase().auth.admin.get_user(user_id)
-        email = auth_user.user.email if auth_user.user else None
-        print(f"DEBUG: Email from Auth: {email}")
+        try:
+            auth_user = get_supabase().auth.admin.get_user(user_id)
+            print(f"DEBUG: auth_user object: {auth_user}")
+            print(f"DEBUG: auth_user type: {type(auth_user)}")
+            
+            # Handle different response structures
+            if hasattr(auth_user, 'user'):
+                email = auth_user.user.email if auth_user.user else None
+            elif hasattr(auth_user, 'email'):
+                email = auth_user.email
+            else:
+                email = None
+            
+            print(f"DEBUG: Email from Auth: {email}")
+        except Exception as e:
+            print(f"DEBUG: Error getting user from auth - {str(e)}")
+            raise HTTPException(
+                status_code=401,
+                detail="Username atau password salah."
+            )
         
         if not email:
             print(f"DEBUG: Email tidak ditemukan untuk user_id {user_id}")
