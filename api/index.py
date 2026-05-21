@@ -43,6 +43,10 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+class LoginWithUsernameRequest(BaseModel):
+    username: str
+    password: str
+
 class CreateUserRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6, description="Password minimal 6 karakter")
@@ -95,6 +99,74 @@ def login_with_supabase(payload: LoginRequest):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email atau password salah."
+        )
+
+
+# 4B. ENDPOINT LOGIN DENGAN USERNAME DAN PASSWORD
+@app.post("/api/auth/login-username", summary="Login menggunakan Username dan Password")
+def login_with_username(payload: LoginWithUsernameRequest):
+    print(f"DEBUG: Login attempt - Username: {payload.username}")
+    try:
+        # 1. Cari user berdasarkan username dari tabel user_profile
+        response = get_supabase().table("user_profile") \
+            .select("id, full_name, role") \
+            .eq("username", payload.username) \
+            .execute()
+        
+        if not response.data or len(response.data) == 0:
+            raise HTTPException(
+                status_code=401,
+                detail="Username atau password salah."
+            )
+        
+        user_profile = response.data[0]
+        user_id = user_profile["id"]
+        
+        # 2. Dapatkan email dari Supabase Auth menggunakan user_id
+        auth_user = get_supabase().auth.admin.get_user(user_id)
+        email = auth_user.user.email if auth_user.user else None
+        
+        if not email:
+            raise HTTPException(
+                status_code=401,
+                detail="Username atau password salah."
+            )
+        
+        # 3. Autentikasi menggunakan email dan password ke Supabase
+        auth_response = get_supabase().auth.sign_in_with_password({
+            "email": email,
+            "password": payload.password
+        })
+        
+        print(f"DEBUG: Login berhasil untuk username {payload.username}")
+        user_data = auth_response.user
+        session_data = auth_response.session
+
+        if not user_data or not session_data:
+            raise HTTPException(status_code=401, detail="Data autentikasi tidak valid")
+
+        user_metadata = user_data.user_metadata if user_data.user_metadata else {}
+        user_role = user_metadata.get("role", "kasir")
+
+        return {
+            "status": "success",
+            "message": "Login berhasil",
+            "user": {
+                "id": user_data.id,
+                "name": user_profile.get("full_name", "Pengguna"),
+                "email": user_data.email,
+                "username": payload.username,
+                "role": user_role,
+            },
+            "token": session_data.access_token
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Username atau password salah."
         )
 
 
