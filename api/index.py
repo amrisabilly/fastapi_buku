@@ -31,9 +31,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # DEBUG: Tampilkan konfigurasi Supabase
 print("DEBUG: SUPABASE_URL =", SUPABASE_URL[:30] if SUPABASE_URL else "NOT SET")
 print("DEBUG: SUPABASE_KEY =", SUPABASE_KEY[:20] if SUPABASE_KEY else "NOT SET")
+print("KEY:", SUPABASE_KEY[:20])
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-print("DEBUG: Supabase client berhasil diinisialisasi")
+def get_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # 3. VALIDASI SKEMA DATA (PYDANTIC MODELS)
@@ -62,7 +63,7 @@ class UpdateUserRequest(BaseModel):
 def login_with_supabase(payload: LoginRequest):
     print(f"DEBUG: Login attempt - Email: {payload.email}")
     try:
-        response = supabase.auth.sign_in_with_password({
+        response = get_supabase().auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
         })
@@ -110,7 +111,7 @@ def create_user(payload: CreateUserRequest):
 
     try:
         # A. Daftarkan akun ke Supabase Authentication
-        auth_response = supabase.auth.admin.create_user({
+        auth_response = get_supabase().auth.admin.create_user({
             "email": payload.email,
             "password": payload.password,
             "email_confirm": True,
@@ -133,7 +134,7 @@ def create_user(payload: CreateUserRequest):
             "role": payload.role.lower()
         }
         
-        supabase.table("user_profile").insert(profile_data).execute()
+        get_supabase().table("user_profile").insert(profile_data).execute()
 
         return {
             "status": "success",
@@ -156,7 +157,7 @@ def create_user(payload: CreateUserRequest):
 def get_employees():
     print("DEBUG: Fetching all employees (supervisor dan kasir)")
     try:
-        response = supabase.table("user_profile") \
+        response = get_supabase().table("user_profile") \
             .select("id, username, full_name, role, created_at") \
             .in_("role", ["supervisor", "kasir"]) \
             .execute()
@@ -192,7 +193,7 @@ def update_employee(user_id: str, payload: UpdateUserRequest):
                 auth_updates["user_metadata"]["role"] = payload.role.lower()
 
         if auth_updates:
-            supabase.auth.admin.update_user_by_id(user_id, auth_updates)
+            get_supabase().auth.admin.update_user_by_id(user_id, auth_updates)
             print(f"DEBUG: Auth data updated untuk user {user_id}")
 
         # B. Update data di tabel database user_profile
@@ -205,7 +206,7 @@ def update_employee(user_id: str, payload: UpdateUserRequest):
             profile_updates["role"] = payload.role.lower()
 
         if profile_updates:
-            supabase.table("user_profile").update(profile_updates).eq("id", user_id).execute()
+            get_supabase().table("user_profile").update(profile_updates).eq("id", user_id).execute()
 
         return {
             "status": "success",
@@ -226,7 +227,7 @@ def delete_employee(user_id: str):
         # Menghapus user secara permanen dari Supabase Auth Admin.
         # Karena relasi foreign key pada tabel user_profile sudah diatur "ON DELETE CASCADE",
         # data profil baris ini akan otomatis ikut terhapus dari tabel database public Anda.
-        supabase.auth.admin.delete_user(user_id)
+        get_supabase().auth.admin.delete_user(user_id)
         print(f"DEBUG: User {user_id} berhasil dihapus")
         
         return {
