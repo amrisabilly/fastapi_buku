@@ -52,7 +52,7 @@ class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=3, description="Username unik pengguna")
     full_name: str = Field(..., description="Nama lengkap pengguna")
     role: str = Field(..., description="Role wajib diisi: 'manager', 'supervisor', atau 'kasir'")
-    cafe_id: str
+    cafe_id: Optional[str] = Field(None, description="ID kafe (opsional untuk manager)")
 
 class UpdateUserRequest(BaseModel):
     email: Optional[EmailStr] = None
@@ -193,18 +193,25 @@ def create_user(payload: CreateUserRequest):
     role_lower = payload.role.lower()
     if role_lower not in ["manager", "supervisor", "kasir"]:
         raise HTTPException(status_code=400, detail="Role tidak valid.")
+    
+    # Validasi: supervisor dan kasir harus memiliki cafe_id
+    if role_lower in ["supervisor", "kasir"] and not payload.cafe_id:
+        raise HTTPException(status_code=400, detail="cafe_id wajib diisi untuk supervisor dan kasir.")
 
     try:
         # A. Daftarkan akun ke Supabase Auth
+        user_metadata = {
+            "name": payload.full_name,
+            "role": role_lower,
+        }
+        if payload.cafe_id:
+            user_metadata["cafe_id"] = payload.cafe_id
+            
         auth_response = get_supabase().auth.admin.create_user({
             "email": payload.email,
             "password": payload.password,
             "email_confirm": True,
-            "user_metadata": {
-                "name": payload.full_name,
-                "role": role_lower,
-                "cafe_id": payload.cafe_id
-            }
+            "user_metadata": user_metadata
         })
 
         user = auth_response.user
@@ -218,7 +225,7 @@ def create_user(payload: CreateUserRequest):
             "username": payload.username,
             "full_name": payload.full_name,
             "role": role_lower,
-            "cafe_id": payload.cafe_id
+            "cafe_id": payload.cafe_id or ""
         }
         get_supabase().table("user_profile").insert(profile_data).execute()
 
@@ -229,7 +236,7 @@ def create_user(payload: CreateUserRequest):
                 "user_id": user.id,
                 "username": payload.username,
                 "role": role_lower,
-                "cafe_id": payload.cafe_id
+                "cafe_id": payload.cafe_id or ""
             }
         }
     except HTTPException as http_e:
