@@ -45,6 +45,7 @@ class LoginUsernameRequest(BaseModel):
 class CreateCafeRequest(BaseModel):
     name: str = Field(..., min_length=2, description="Nama kafe/outlet baru")
     address: Optional[str] = Field(None, description="Alamat lokasi kafe")
+    manager_id: Optional[str] = Field(None, description="ID manager yang mengelola kafe")
 
 class CreateUserRequest(BaseModel):
     email: EmailStr
@@ -165,7 +166,8 @@ def create_cafe(payload: CreateCafeRequest):
     try:
         cafe_payload = {
             "name": payload.name,
-            "address": payload.address
+            "address": payload.address,
+            "manager_id": payload.manager_id
         }
         response = get_supabase().table("cafes").insert(cafe_payload).execute()
         
@@ -178,7 +180,8 @@ def create_cafe(payload: CreateCafeRequest):
             "message": f"Kafe '{new_cafe['name']}' berhasil didaftarkan!",
             "data": {
                 "cafe_id": new_cafe["id"],
-                "cafe_name": new_cafe["name"]
+                "cafe_name": new_cafe["name"],
+                "manager_id": new_cafe.get("manager_id")
             }
         }
     except HTTPException as http_e:
