@@ -107,8 +107,9 @@ def login_with_supabase(payload: LoginRequest):
 def login_with_username(payload: LoginUsernameRequest):
     print(f"DEBUG: Login attempt dengan username: {payload.username}")
     try:
+        # PERBAIKAN 1: Tambahkan 'cafe_id' di dalam .select()
         user_profile_response = get_supabase().table("user_profile") \
-            .select("id, username, email, full_name, role") \
+            .select("id, username, email, full_name, role, cafe_id") \
             .eq("username", payload.username) \
             .execute()
 
@@ -148,6 +149,7 @@ def login_with_username(payload: LoginUsernameRequest):
                 "username": user_profile["username"],
                 "name": user_profile["full_name"],
                 "role": user_profile["role"],
+                "cafe_id": user_profile.get("cafe_id", "")
             },
             "token": session_data.access_token
         }
@@ -158,7 +160,6 @@ def login_with_username(payload: LoginUsernameRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Username atau password salah."
         )
-
 
 # 5. ENDPOINT: MEMBUAT KAFE BARU (LANGKAH 1)
 @app.post("/create-cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
