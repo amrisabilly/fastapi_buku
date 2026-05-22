@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client, Client
 from typing import Optional  # Diperlukan agar tidak terjadi error NameError di Vercel
 import os
+from fastapi import Header
 
 app = FastAPI(
     title="Management Karyawan API",
@@ -47,12 +48,17 @@ class LoginUsernameRequest(BaseModel):
     username: str
     password: str
 
+class CreateCafeRequest(BaseModel):
+    name: str = Field(..., min_length=2, description="Nama kafe/outlet baru")
+    address: Optional[str] = Field(None, description="Alamat lokasi kafe")
+
 class CreateUserRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6, description="Password minimal 6 karakter")
     username: str = Field(..., min_length=3, description="Username unik pengguna")
     full_name: str = Field(..., description="Nama lengkap pengguna")
     role: str = Field(..., description="Role wajib diisi: 'manager', 'supervisor', atau 'kasir'")
+    cafe_id: str
 
 class UpdateUserRequest(BaseModel):
     email: Optional[EmailStr] = None
@@ -60,6 +66,10 @@ class UpdateUserRequest(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     role: Optional[str] = None
+
+
+
+
 
 
 # 4. ENDPOINT 1: LOGIN UTK SEMUA ROLE
@@ -109,7 +119,7 @@ def login_with_username(payload: LoginUsernameRequest):
     try:
         # 1. Cari user di tabel user_profile berdasarkan username
         user_profile_response = get_supabase().table("user_profile") \
-            .select("id, username, full_name, role") \
+            .select("id, username, email, full_name, role") \
             .eq("username", payload.username) \
             .execute()
 
@@ -121,21 +131,18 @@ def login_with_username(payload: LoginUsernameRequest):
 
         user_profile = user_profile_response.data[0]
         user_id = user_profile["id"]
+        email = user_profile.get("email")
         print(f"DEBUG: Username '{payload.username}' ditemukan dengan ID: {user_id}")
 
-        # 2. Ambil data user dari Supabase Auth menggunakan user_id
-        auth_response = get_supabase().auth.admin.get_user(user_id)
-        auth_user = auth_response
-
-        if not auth_user or not auth_user.email:
+        if not email:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Username atau password salah."
+                detail="Data email tidak ditemukan untuk username ini."
             )
 
-        # 3. Login menggunakan email dan password ke Supabase Auth
+        # 2. Login menggunakan email dan password ke Supabase Auth
         login_response = get_supabase().auth.sign_in_with_password({
-            "email": auth_user.email,
+            "email": email,
             "password": payload.password
         })
 
@@ -171,76 +178,135 @@ def login_with_username(payload: LoginUsernameRequest):
         )
 
 
-# 5. ENDPOINT 2: PEMBUATAN USER SECARA DINAMIS
-@app.post("/create-user", summary="Membuat User baru (Manager, Supervisor, atau Kasir)")
-def create_user(payload: CreateUserRequest):
-    print(f"DEBUG: Create user attempt - Email: {payload.email}, Role: {payload.role}")
-    allowed_roles = ["manager", "supervisor", "kasir"]
-    if payload.role.lower() not in allowed_roles:
+# 5. ENDPOINT: MEMBUAT KAFE BARU
+@app.post("/api/cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
+def create_cafe(payload: CreateCafeRequest):
+    print(f"DEBUG: Create cafe attempt - Name: {payload.name}, Address: {payload.address}")
+    try:
+        cafe_payload = {
+            "name": payload.name,
+            "address": payload.address
+        }
+        # Simpan ke tabel cafes
+        response = get_supabase().table("cafes").insert(cafe_payload).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=400, detail="Gagal menyimpan data kafe.")
+            
+        new_cafe = response.data[0]
+        print(f"DEBUG: Kafe '{new_cafe['name']}' berhasil dibuat dengan cafe_id: {new_cafe['id']}")
+        
+        return {
+            "status": "success",
+            "message": f"Kafe '{new_cafe['name']}' berhasil didaftarkan!",
+            "data": {
+                "cafe_id": new_cafe["id"],
+                "cafe_name": new_cafe["name"]
+            }
+        }
+    except HTTPException as http_e:
+        raise http_e
+    except Exception as e:
+        print(f"DEBUG: Error creating cafe: {str(e)}")
         raise HTTPException(
-            status_code=400, 
-            detail=f"Role tidak valid. Pilih salah satu dari: {', '.join(allowed_roles)}"
+            status_code=400,
+            detail=str(e)
         )
 
+
+# 6. ENDPOINT 2: PEMBUATAN USER SECARA DINAMIS
+@app.post("/create-user", summary="Langkah 2: Membuat akun user (Manager/Supervisor/Kasir)")
+def create_user(payload: CreateUserRequest):
+    role_lower = payload.role.lower()
+    print(f"DEBUG: Create user attempt - Email: {payload.email}, Role: {role_lower}, Cafe ID: {payload.cafe_id}")
+    
+    if role_lower not in ["manager", "supervisor", "kasir"]:
+        raise HTTPException(status_code=400, detail="Role tidak valid.")
+
     try:
-        # A. Daftarkan akun ke Supabase Authentication
+        # A. Daftarkan akun ke Supabase Auth
         auth_response = get_supabase().auth.admin.create_user({
             "email": payload.email,
             "password": payload.password,
             "email_confirm": True,
             "user_metadata": {
                 "name": payload.full_name,
-                "role": payload.role.lower()
+                "role": role_lower,
+                "cafe_id": payload.cafe_id
             }
         })
 
         user = auth_response.user
         print(f"DEBUG: User {payload.email} berhasil dibuat di Auth dengan ID: {user.id if user else 'UNKNOWN'}")
+        
         if not user:
-            raise HTTPException(status_code=400, detail="Gagal membuat user di sistem autentikasi Supabase")
+            raise HTTPException(status_code=400, detail="Gagal membuat akun autentikasi.")
 
-        # B. Sinkronisasi data profile tambahan ke dalam tabel database "user_profile"
+        # B. Simpan data profil ke tabel user_profile
         profile_data = {
             "id": user.id,
             "username": payload.username,
             "full_name": payload.full_name,
-            "role": payload.role.lower()
+            "role": role_lower,
+            "cafe_id": payload.cafe_id
         }
-        
         get_supabase().table("user_profile").insert(profile_data).execute()
+        print(f"DEBUG: Profile user {payload.email} berhasil disimpan ke database dengan cafe_id: {payload.cafe_id}")
 
         return {
             "status": "success",
-            "message": "User baru berhasil didaftarkan!",
+            "message": f"Akun dengan role '{role_lower}' berhasil dibuat!",
             "data": {
                 "user_id": user.id,
                 "username": payload.username,
-                "email": payload.email,
-                "role": payload.role.lower()
+                "role": role_lower,
+                "cafe_id": payload.cafe_id
             }
         }
+    except HTTPException as http_e:
+        raise http_e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Proses pembuatan user gagal: {str(e)}"
-        )
+        print(f"DEBUG: Error creating user: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/users", summary="Mengambil data semua Supervisor dan Kasir")
-def get_employees():
-    print("DEBUG: Fetching all employees (supervisor dan kasir)")
+@app.get("/api/users", summary="Mengambil data Supervisor dan Kasir berdasarkan Cafe Manager")
+def get_employees(manager_id: str):
+    print(f"DEBUG: Fetching employees untuk manager_id: {manager_id}")
     try:
-        response = get_supabase().table("user_profile") \
-            .select("id, username, full_name, role, created_at") \
-            .in_("role", ["supervisor", "kasir"]) \
+        # 1. Dapatkan cafe_id si manager
+        manager_query = get_supabase().table("user_profile") \
+            .select("cafe_id") \
+            .eq("id", manager_id) \
             .execute()
-    
-        print(f"DEBUG: Berhasil mengambil {len(response.data)} karyawan dari database")
+        
+        if not manager_query.data:
+            print(f"DEBUG: Manager dengan ID {manager_id} tidak ditemukan")
+            return {"status": "success", "data": []}
+            
+        cafe_id = manager_query.data[0]["cafe_id"]
+        print(f"DEBUG: Manager ID {manager_id} terikat dengan cafe_id: {cafe_id}")
+
+        # 2. Ambil karyawan yang hanya berada di cafe_id tersebut
+        response = get_supabase().table("user_profile") \
+            .select("*") \
+            .eq("cafe_id", cafe_id) \
+            .execute()
+        
+        # Filter untuk hanya menampilkan supervisor dan kasir
+        filtered_data = [
+            emp for emp in response.data 
+            if emp.get("role", "").lower() in ["supervisor", "kasir"]
+        ]
+        
+        print(f"DEBUG: Berhasil mengambil {len(filtered_data)} karyawan dari cafe_id {cafe_id}")
+        
         return {
             "status": "success",
-            "data": response.data
+            "data": filtered_data
         }
     except Exception as e:
+        print(f"DEBUG: Error fetching employees: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengambil data karyawan: {str(e)}"
