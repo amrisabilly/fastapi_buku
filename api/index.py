@@ -179,7 +179,7 @@ def login_with_username(payload: LoginUsernameRequest):
 
 
 # 5. ENDPOINT: MEMBUAT KAFE BARU
-@app.post("/api/cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
+@app.post("/create-cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
 def create_cafe(payload: CreateCafeRequest):
     print(f"DEBUG: Create cafe attempt - Name: {payload.name}, Address: {payload.address}")
     try:
@@ -245,6 +245,7 @@ def create_user(payload: CreateUserRequest):
         # B. Simpan data profil ke tabel user_profile
         profile_data = {
             "id": user.id,
+            "email": payload.email,
             "username": payload.username,
             "full_name": payload.full_name,
             "role": role_lower,
