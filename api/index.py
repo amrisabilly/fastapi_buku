@@ -61,7 +61,6 @@ class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
 
-
 # 4. ENDPOINT: LOGIN EMAIL
 @app.post("/api/auth/login", summary="Login menggunakan Email dan Password Supabase")
 def login_with_supabase(payload: LoginRequest):
@@ -81,6 +80,7 @@ def login_with_supabase(payload: LoginRequest):
         user_metadata = user_data.user_metadata if user_data.user_metadata else {}
         user_role = user_metadata.get("role", "kasir")
         full_name = user_metadata.get("name", "Pengguna")
+        cafe_id = user_metadata.get("cafe_id", "") 
 
         return {
             "status": "success",
@@ -90,6 +90,7 @@ def login_with_supabase(payload: LoginRequest):
                 "name": full_name,
                 "email": user_data.email,
                 "role": user_role,
+                "cafe_id": cafe_id 
             },
             "token": session_data.access_token
         }
@@ -237,28 +238,20 @@ def create_user(payload: CreateUserRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# 6B. ENDPOINT: GET EMPLOYEES BERDASARKAN KAFE MANAGER
-@app.get("/api/users", summary="Mengambil data Supervisor dan Kasir berdasarkan Cafe Manager")
-def get_employees(manager_id: str):
+# 6B. ENDPOINT: GET EMPLOYEES BERDASARKAN CAFE_ID
+@app.get("/api/users", summary="Mengambil data Supervisor dan Kasir berdasarkan Cafe ID")
+def get_employees(cafe_id: str):
     try:
-        # 1. Dapatkan cafe_id si manager
-        manager_query = get_supabase().table("user_profile") \
-            .select("cafe_id") \
-            .eq("id", manager_id) \
-            .execute()
-        
-        if not manager_query.data:
-            return {"status": "success", "data": []}
-            
-        cafe_id = manager_query.data[0]["cafe_id"]
-
-        # 2. Ambil karyawan yang hanya berada di cafe_id tersebut
+        # Ambil semua karyawan yang berada di cafe_id tersebut
         response = get_supabase().table("user_profile") \
             .select("*") \
             .eq("cafe_id", cafe_id) \
             .execute()
         
-        # Saring data di tingkat aplikasi
+        if not response.data:
+            return {"status": "success", "data": []}
+        
+        # Saring data untuk menampilkan hanya supervisor dan kasir
         filtered_data = [
             emp for emp in response.data 
             if emp.get("role", "").lower() in ["supervisor", "kasir"]
