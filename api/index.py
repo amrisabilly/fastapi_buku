@@ -5,6 +5,9 @@ from supabase import create_client, Client
 from typing import Optional  # Diperlukan agar tidak terjadi error NameError di Vercel
 import os
 from fastapi import Header
+from routes import menu_router
+from routes import kategori_router
+
 
 app = FastAPI(
     title="Management Karyawan API",
@@ -331,3 +334,10 @@ def get_manager_cafes(manager_id: str):
         return {"status": "success", "data": response.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Inisiasi route
+
+app.include_router(menu_router)
+
+app.include_router(kategori_router)
