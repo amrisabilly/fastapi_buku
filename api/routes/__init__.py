@@ -1,4 +1,11 @@
 from .kategori import router as kategori_router
 from .menu import router as menu_router
+from .ingredients import router as ingredients_router
+from .stock_opname import router as stock_opname_router
 
-__all__ = ["auth_router", "users_router", "cafes_router", "menu_router"]
+__all__ = [
+    "kategori_router",
+    "menu_router",
+    "ingredients_router",
+    "stock_opname_router"
+]
