@@ -24,6 +24,15 @@ class CreateMenuRequest(BaseModel):
     track_stock: bool = False
     recipe: Optional[List[RecipeInput]] = []
 
+class UpdateMenuRequest(BaseModel):
+    category_id: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2)
+    description: Optional[str] = None
+    price: Optional[int] = None
+    is_available: Optional[bool] = None
+    track_stock: Optional[bool] = None
+    recipe: Optional[List[RecipeInput]] = None
+
 @router.get("/")
 def get_all_menus(cafe_id: str):
     db = get_supabase()
@@ -61,6 +70,36 @@ def create_menu(payload: CreateMenuRequest):
             db.table("recipe_ingredients").insert(recipe_list).execute()
 
         return {"status": "success", "message": "Menu berhasil dirilis!"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/{menu_id}")
+def update_menu(menu_id: str, payload: UpdateMenuRequest):
+    db = get_supabase()
+    try:
+        # Persiapkan data yang akan diupdate (hanya field yang tidak None)
+        update_data = {k: v for k, v in payload.dict().items() if v is not None and k != "recipe"}
+        
+        if update_data:
+            db.table("menus").update(update_data).eq("id", menu_id).execute()
+        
+        # Jika recipe diupdate
+        if payload.recipe is not None:
+            # Hapus resep lama terlebih dahulu
+            db.table("recipe_ingredients").delete().eq("menu_id", menu_id).execute()
+            
+            # Simpan resep baru
+            if payload.recipe:
+                recipe_list = []
+                for item in payload.recipe:
+                    recipe_list.append({
+                        "menu_id": menu_id,
+                        "ingredient_id": item.ingredient_id,
+                        "quantity": item.quantity
+                    })
+                db.table("recipe_ingredients").insert(recipe_list).execute()
+        
+        return {"status": "success", "message": "Menu berhasil diperbarui!"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
