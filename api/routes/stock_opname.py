@@ -49,3 +49,41 @@ def save_stock_opname(payload: StockOpnameCreate):
         return {"status": "success", "message": "Stok Opname tersimpan dan gudang diperbarui!"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/list/{cafe_id}")
+def get_stock_opnames(cafe_id: str):
+    db = get_supabase()
+    
+    try:
+        response = db.table("stock_opnames").select("*").eq("cafe_id", cafe_id).order("created_at", desc=True).execute()
+        return {"status": "success", "data": response.data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/detail/{stock_opname_id}")
+def get_stock_opname_detail(stock_opname_id: str):
+    db = get_supabase()
+    
+    try:
+        # Ambil header stok opname
+        so_response = db.table("stock_opnames").select("*").eq("id", stock_opname_id).execute()
+        
+        if not so_response.data:
+            raise HTTPException(status_code=404, detail="Stok Opname tidak ditemukan")
+        
+        so_data = so_response.data[0]
+        
+        # Ambil detail items
+        items_response = db.table("stock_opname_items").select("*").eq("stock_opname_id", stock_opname_id).execute()
+        
+        return {
+            "status": "success",
+            "data": {
+                "header": so_data,
+                "items": items_response.data
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
